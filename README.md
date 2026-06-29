@@ -6,7 +6,7 @@ Employee timesheet app built with Next.js and Supabase, hosted on **GitHub Pages
 
 After deployment: `https://YOUR_USERNAME.github.io/REPO_NAME/`
 
-Example: `https://johndoe.github.io/emplyees/`
+Example: `https://obi1kanobii.github.io/Employees_Management/`
 
 ## For employees
 
@@ -40,28 +40,27 @@ Run `supabase/schema.sql` in the Supabase SQL Editor on first setup.
 ### 1. Push to GitHub
 
 ```bash
-git add .
-git commit -m "Deploy to GitHub Pages"
-git branch -M main
-git remote add origin https://github.com/YOUR_USERNAME/emplyees.git
-git push -u origin main
+git push origin main
 ```
 
-### 2. Enable GitHub Pages (one-time)
+### 2. Delete the stuck `deploy-pages` workflow
 
-1. Push to `main` and wait for **Deploy to GitHub Pages** to finish
-2. Open **Settings → Pages**
-3. Set **Source:** Deploy from a branch
-4. Set **Branch:** `main` → folder **`/docs`** → **Save**
-5. Wait 1–2 minutes, then open:
+If Actions runs `actions/deploy-pages@v5` and stays on `deployment_queued`:
 
-   **`https://YOUR_USERNAME.github.io/REPO_NAME/`**
+1. GitHub → **Actions** → click the workflow on the left (e.g. "Deploy Next.js site to Pages")
+2. **⋯** → **Delete workflow**
 
-   Example: `https://obi1kanobii.github.io/Employees_Management-/`
+This repo uses the **`docs/` folder** — not `deploy-pages`.
 
-If you previously used the `gh-pages` branch or GitHub Actions as the source, switch to **`main` / `docs`** as above.
+### 3. Enable GitHub Pages (one-time)
 
-### 3. Add GitHub secrets
+1. Wait for **Deploy to GitHub Pages** to finish
+2. **Settings → Pages**
+3. **Source:** Deploy from a branch (**NOT** "GitHub Actions")
+4. **Branch:** `main` → **`/docs`** → **Save**
+5. Open: **https://obi1kanobii.github.io/Employees_Management/**
+
+### 4. Add GitHub secrets
 
 **Settings → Secrets and variables → Actions:**
 
