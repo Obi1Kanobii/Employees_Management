@@ -1,25 +1,40 @@
-import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+"use client";
 
-export default async function Home() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
+import { ensureProfile } from "@/lib/profile";
+import { withBasePath } from "@/lib/base-path";
 
-  if (!user) {
-    redirect("/login");
-  }
+export default function Home() {
+  const router = useRouter();
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
+  useEffect(() => {
+    async function redirect() {
+      const supabase = createClient();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
 
-  if (profile?.role === "admin") {
-    redirect("/admin/dashboard");
-  }
+      if (!user) {
+        router.replace(withBasePath("/login"));
+        return;
+      }
 
-  redirect("/employee/dashboard");
+      const { profile } = await ensureProfile(supabase, user);
+      router.replace(
+        profile?.role === "admin"
+          ? withBasePath("/admin/dashboard")
+          : withBasePath("/employee/dashboard")
+      );
+    }
+
+    redirect();
+  }, [router]);
+
+  return (
+    <div className="min-h-screen flex items-center justify-center text-slate-500">
+      Loading...
+    </div>
+  );
 }
