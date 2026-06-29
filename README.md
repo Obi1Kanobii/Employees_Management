@@ -70,14 +70,12 @@ If you previously used the `gh-pages` branch or GitHub Actions as the source, sw
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase → Settings → API |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase → Settings → API |
 
-### 4. Configure Supabase auth URLs
+### 5. Configure Supabase auth URLs
 
-Replace `YOUR_USERNAME` and `REPO_NAME` with your values:
+- **Site URL:** `https://obi1kanobii.github.io/Employees_Management/`
+- **Redirect URLs:** `https://obi1kanobii.github.io/Employees_Management/auth/callback`
 
-- **Site URL:** `https://YOUR_USERNAME.github.io/REPO_NAME/`
-- **Redirect URLs:** `https://YOUR_USERNAME.github.io/REPO_NAME/auth/callback`
-
-### 5. Share with employees
+### 6. Share with employees
 
 Send them the GitHub Pages URL and ask them to sign up and submit weekly timesheets.
 
