@@ -49,9 +49,12 @@ git push -u origin main
 
 ### 2. Enable GitHub Pages
 
-1. GitHub repo → **Settings → Pages**
-2. **Source:** GitHub Actions
-3. The workflow runs automatically on push to `main`
+1. Push to `main` and wait for the **Deploy to GitHub Pages** workflow to finish
+2. GitHub repo → **Settings → Pages**
+3. **Source:** Deploy from a branch
+4. **Branch:** `gh-pages` → `/ (root)` → **Save**
+
+If a previous deploy was stuck on "GitHub Actions", switch the source to the `gh-pages` branch as above.
 
 ### 3. Add GitHub secrets
 
