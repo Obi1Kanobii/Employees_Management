@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { Download, Users, DollarSign, Clock } from "lucide-react";
 import { parseISO } from "date-fns";
 import { createClient } from "@/lib/supabase/client";
@@ -16,22 +16,27 @@ export default function AdminDashboard() {
   const [filter, setFilter] = useState("all");
   const [loading, setLoading] = useState(true);
 
-  const fetchTimesheets = useCallback(async () => {
-    const supabase = createClient();
-    const { data, error } = await supabase
-      .from("timesheets")
-      .select("*, profiles(full_name, hourly_rate)")
-      .order("created_at", { ascending: false });
-
-    if (!error && data) {
-      setTimesheets(data as TimesheetRow[]);
-    }
-    setLoading(false);
-  }, []);
-
   useEffect(() => {
-    fetchTimesheets();
-  }, [fetchTimesheets]);
+    let active = true;
+
+    void (async () => {
+      const supabase = createClient();
+      const { data, error } = await supabase
+        .from("timesheets")
+        .select("*, profiles(full_name, hourly_rate)")
+        .order("created_at", { ascending: false });
+
+      if (!active) return;
+      if (!error && data) {
+        setTimesheets(data as TimesheetRow[]);
+      }
+      setLoading(false);
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const filteredData =
     filter === "all"

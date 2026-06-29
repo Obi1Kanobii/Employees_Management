@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Clock, Save } from "lucide-react";
-import { format } from "date-fns";
+import { format, parseISO } from "date-fns";
 import { createClient } from "@/lib/supabase/client";
 import { ensureProfile } from "@/lib/profile";
 import {
@@ -41,6 +41,8 @@ export default function TimesheetForm() {
   const [messageIsError, setMessageIsError] = useState(false);
 
   useEffect(() => {
+    const weekStartDate = parseISO(weekStartStr);
+
     async function loadTimesheet() {
       const supabase = createClient();
       const {
@@ -59,7 +61,7 @@ export default function TimesheetForm() {
         setTimesheetId(timesheet.id);
         setStatus(timesheet.status);
 
-        const loaded = buildEmptyEntries(weekStart).map((entry) => {
+        const loaded = buildEmptyEntries(weekStartDate).map((entry) => {
           const existing = timesheet.time_entries?.find(
             (te: { work_date: string }) => te.work_date === entry.workDate
           );
