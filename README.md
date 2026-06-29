@@ -47,14 +47,19 @@ git remote add origin https://github.com/YOUR_USERNAME/emplyees.git
 git push -u origin main
 ```
 
-### 2. Enable GitHub Pages
+### 2. Enable GitHub Pages (one-time)
 
-1. Push to `main` and wait for the **Deploy to GitHub Pages** workflow to finish
-2. GitHub repo → **Settings → Pages**
-3. **Source:** Deploy from a branch
-4. **Branch:** `gh-pages` → `/ (root)` → **Save**
+1. Push to `main` and wait for **Deploy to GitHub Pages** to finish
+2. Open **Settings → Pages**
+3. Set **Source:** Deploy from a branch
+4. Set **Branch:** `main` → folder **`/docs`** → **Save**
+5. Wait 1–2 minutes, then open:
 
-If a previous deploy was stuck on "GitHub Actions", switch the source to the `gh-pages` branch as above.
+   **`https://YOUR_USERNAME.github.io/REPO_NAME/`**
+
+   Example: `https://obi1kanobii.github.io/Employees_Management-/`
+
+If you previously used the `gh-pages` branch or GitHub Actions as the source, switch to **`main` / `docs`** as above.
 
 ### 3. Add GitHub secrets
 
