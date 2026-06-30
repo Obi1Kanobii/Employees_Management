@@ -3,7 +3,6 @@
 import { LogOut } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
-import { withBasePath } from "@/lib/base-path";
 
 export default function SignOutButton() {
   const router = useRouter();
@@ -11,7 +10,7 @@ export default function SignOutButton() {
   const handleSignOut = async () => {
     const supabase = createClient();
     await supabase.auth.signOut();
-    router.push(withBasePath("/login"));
+    router.push("/login");
   };
 
   return (

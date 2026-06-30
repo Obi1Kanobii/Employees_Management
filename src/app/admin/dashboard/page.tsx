@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { ensureProfile } from "@/lib/profile";
-import { withBasePath } from "@/lib/base-path";
 import AdminDashboard from "./AdminDashboard";
 import SignOutButton from "@/components/SignOutButton";
 
@@ -20,7 +19,7 @@ export default function AdminDashboardPage() {
       } = await supabase.auth.getUser();
 
       if (!user) {
-        router.replace(withBasePath("/login"));
+        router.replace("/login");
         return;
       }
 
@@ -28,7 +27,7 @@ export default function AdminDashboardPage() {
       if (!profile) return;
 
       if (profile.role !== "admin") {
-        router.replace(withBasePath("/employee/dashboard"));
+        router.replace("/employee/dashboard");
         return;
       }
 

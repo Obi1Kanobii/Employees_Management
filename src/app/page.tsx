@@ -4,7 +4,6 @@ import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { ensureProfile } from "@/lib/profile";
-import { withBasePath } from "@/lib/base-path";
 
 export default function Home() {
   const router = useRouter();
@@ -17,15 +16,13 @@ export default function Home() {
       } = await supabase.auth.getUser();
 
       if (!user) {
-        router.replace(withBasePath("/login"));
+        router.replace("/login");
         return;
       }
 
       const { profile } = await ensureProfile(supabase, user);
       router.replace(
-        profile?.role === "admin"
-          ? withBasePath("/admin/dashboard")
-          : withBasePath("/employee/dashboard")
+        profile?.role === "admin" ? "/admin/dashboard" : "/employee/dashboard"
       );
     }
 

@@ -3,7 +3,6 @@
 import { useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { withBasePath } from "@/lib/base-path";
 
 export default function AuthCallbackClient() {
   const router = useRouter();
@@ -17,12 +16,12 @@ export default function AuthCallbackClient() {
       if (code) {
         const { error } = await supabase.auth.exchangeCodeForSession(code);
         if (!error) {
-          router.replace(withBasePath("/"));
+          router.replace("/");
           return;
         }
       }
 
-      router.replace(withBasePath("/login?error=auth"));
+      router.replace("/login?error=auth");
     }
 
     handleCallback();

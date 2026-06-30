@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { Clock, LogIn } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { ensureProfile } from "@/lib/profile";
-import { withBasePath } from "@/lib/base-path";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -66,9 +65,7 @@ export default function LoginPage() {
     }
 
     router.push(
-      profile.role === "admin"
-        ? withBasePath("/admin/dashboard")
-        : withBasePath("/employee/dashboard")
+      profile.role === "admin" ? "/admin/dashboard" : "/employee/dashboard"
     );
   };
 
