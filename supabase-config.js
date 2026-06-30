@@ -1,0 +1,1 @@
+window.__SUPABASE_CONFIG__={"url":"https://ynwywpfuqbdlepaeworu.supabase.co","anonKey":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlud3l3cGZ1cWJkbGVwYWV3b3J1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTU0MTAsImV4cCI6MjA5ODIzMTQxMH0.3pwBugaYpM9MRiWx2qdffZrUiMYJAvpAzzbyHUujmYU"};
