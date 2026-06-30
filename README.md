@@ -45,13 +45,12 @@ git push origin main
 
 ### 2. Enable GitHub Pages (one-time)
 
-1. Wait for **Deploy to GitHub Pages** to finish (pushes to the `gh-pages` branch)
-2. **Settings → Pages**
-3. **Source:** Deploy from a branch (**NOT** "GitHub Actions")
-4. **Branch:** `gh-pages` → **`/ (root)`** → **Save**
-5. Open: **https://obi1kanobii.github.io/Employees_Management/**
+1. **Settings → Pages**
+2. **Source:** **GitHub Actions** (not "Deploy from a branch")
+3. Push to `main` — the **Deploy to GitHub Pages** workflow builds `out/` and publishes via `deploy-pages`
+4. Open: **https://obi1kanobii.github.io/Employees_Management/**
 
-If you previously used `main` → `/docs`, switch to `gh-pages` → `/ (root)` so `_next/` static assets are served (Jekyll strips underscore folders from `/docs` deploys).
+If you previously used **main → /docs** or **gh-pages** branch, switch the source to **GitHub Actions** so the old `pages build and deployment` workflow stops looking for a `docs/` folder.
 
 ### 3. Add GitHub secrets (required)
 
