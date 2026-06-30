@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
+import Script from "next/script";
 import { Geist, Geist_Mono } from "next/font/google";
+import { getBasePath } from "@/lib/base-path";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -22,12 +24,20 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const basePath = getBasePath();
+
   return (
     <html
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col">
+        <Script
+          src={`${basePath}/supabase-config.js`}
+          strategy="beforeInteractive"
+        />
+        {children}
+      </body>
     </html>
   );
 }

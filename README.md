@@ -60,14 +60,18 @@ This repo uses the **`docs/` folder** — not `deploy-pages`.
 4. **Branch:** `main` → **`/docs`** → **Save**
 5. Open: **https://obi1kanobii.github.io/Employees_Management/**
 
-### 4. Add GitHub secrets
+### 4. Add GitHub secrets (required)
 
-**Settings → Secrets and variables → Actions:**
+**Settings → Secrets and variables → Actions → New repository secret**
 
 | Secret | Value |
 |--------|--------|
-| `NEXT_PUBLIC_SUPABASE_URL` | Supabase → Settings → API |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase → Settings → API |
+| `NEXT_PUBLIC_SUPABASE_URL` | Supabase → Settings → API → Project URL |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase → Settings → API → anon public key |
+
+Copy the same values from your local `.env.local`. **Without these secrets, the live site cannot connect to Supabase.**
+
+After adding secrets, go to **Actions → Deploy to GitHub Pages → Run workflow** to redeploy.
 
 ### 5. Configure Supabase auth URLs
 
