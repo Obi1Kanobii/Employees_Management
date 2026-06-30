@@ -62,14 +62,17 @@ This repo uses the **`docs/` folder** — not `deploy-pages`.
 
 ### 4. Add GitHub secrets (required)
 
-**Settings → Secrets and variables → Actions → New repository secret**
+Copy the same values from your local `.env.local`. **Without these secrets, the live site cannot connect to Supabase.**
 
 | Secret | Value |
 |--------|--------|
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase → Settings → API → Project URL |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase → Settings → API → anon public key |
 
-Copy the same values from your local `.env.local`. **Without these secrets, the live site cannot connect to Supabase.**
+Use **either** option (not both required):
+
+1. **Repository secrets (simplest):** Settings → Secrets and variables → Actions → **Repository secrets** → New repository secret
+2. **Environment secrets:** Settings → Environments → create or open **`env`** → add both secrets there (the deploy workflow uses `environment: env`)
 
 After adding secrets, go to **Actions → Deploy to GitHub Pages → Run workflow** to redeploy.
 
