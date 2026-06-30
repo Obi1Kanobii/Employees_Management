@@ -17,6 +17,9 @@
 /.next/
 /out/
 
+# generated site (published to gh-pages branch by CI)
+/docs/
+
 # production
 /build
 

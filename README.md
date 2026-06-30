@@ -43,24 +43,17 @@ Run `supabase/schema.sql` in the Supabase SQL Editor on first setup.
 git push origin main
 ```
 
-### 2. Delete the stuck `deploy-pages` workflow
+### 2. Enable GitHub Pages (one-time)
 
-If Actions runs `actions/deploy-pages@v5` and stays on `deployment_queued`:
-
-1. GitHub → **Actions** → click the workflow on the left (e.g. "Deploy Next.js site to Pages")
-2. **⋯** → **Delete workflow**
-
-This repo uses the **`docs/` folder** — not `deploy-pages`.
-
-### 3. Enable GitHub Pages (one-time)
-
-1. Wait for **Deploy to GitHub Pages** to finish
+1. Wait for **Deploy to GitHub Pages** to finish (pushes to the `gh-pages` branch)
 2. **Settings → Pages**
 3. **Source:** Deploy from a branch (**NOT** "GitHub Actions")
-4. **Branch:** `main` → **`/docs`** → **Save**
+4. **Branch:** `gh-pages` → **`/ (root)`** → **Save**
 5. Open: **https://obi1kanobii.github.io/Employees_Management/**
 
-### 4. Add GitHub secrets (required)
+If you previously used `main` → `/docs`, switch to `gh-pages` → `/ (root)` so `_next/` static assets are served (Jekyll strips underscore folders from `/docs` deploys).
+
+### 3. Add GitHub secrets (required)
 
 Copy the same values from your local `.env.local`. **Without these secrets, the live site cannot connect to Supabase.**
 
@@ -76,12 +69,12 @@ Use **either** option (not both required):
 
 After adding secrets, go to **Actions → Deploy to GitHub Pages → Run workflow** to redeploy.
 
-### 5. Configure Supabase auth URLs
+### 4. Configure Supabase auth URLs
 
 - **Site URL:** `https://obi1kanobii.github.io/Employees_Management/`
 - **Redirect URLs:** `https://obi1kanobii.github.io/Employees_Management/auth/callback`
 
-### 6. Share with employees
+### 5. Share with employees
 
 Send them the GitHub Pages URL and ask them to sign up and submit weekly timesheets.
 
