@@ -9,6 +9,12 @@ export interface Profile {
   created_at?: string;
 }
 
+export interface Client {
+  id: string;
+  name: string;
+  created_at?: string;
+}
+
 export interface Timesheet {
   id: string;
   employee_id: string;
@@ -27,7 +33,9 @@ export interface TimeEntry {
   clock_out: string | null;
   break_minutes: number;
   total_day_hours: number;
+  client_id: string | null;
   notes: string | null;
+  clients?: Pick<Client, "name">;
 }
 
 export interface DayEntry {
@@ -36,5 +44,6 @@ export interface DayEntry {
   clockIn: string;
   clockOut: string;
   breakMins: number;
+  clientId: string;
   notes: string;
 }

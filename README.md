@@ -35,6 +35,8 @@ npm run dev
 
 Run `supabase/schema.sql` in the Supabase SQL Editor on first setup.
 
+If you already have a database, also run `supabase/add-clients.sql` to add client tracking.
+
 ## Deploy to GitHub Pages
 
 ### 1. Push to GitHub

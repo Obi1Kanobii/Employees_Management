@@ -24,6 +24,13 @@ CREATE TABLE timesheets (
   UNIQUE (employee_id, week_start_date)
 );
 
+-- Clients table (billing / project clients)
+CREATE TABLE clients (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name TEXT NOT NULL UNIQUE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
 -- Time entries table (daily logs)
 CREATE TABLE time_entries (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -33,6 +40,7 @@ CREATE TABLE time_entries (
   clock_out TIME,
   break_minutes INT DEFAULT 0,
   total_day_hours DECIMAL(10,2) DEFAULT 0,
+  client_id UUID REFERENCES clients(id),
   notes TEXT,
   UNIQUE (timesheet_id, work_date)
 );
@@ -119,6 +127,7 @@ GRANT USAGE ON SCHEMA public TO authenticated;
 GRANT ALL ON profiles TO authenticated;
 GRANT ALL ON timesheets TO authenticated;
 GRANT ALL ON time_entries TO authenticated;
+GRANT ALL ON clients TO authenticated;
 GRANT USAGE ON TYPE user_role TO authenticated;
 GRANT USAGE ON TYPE timesheet_status TO authenticated;
 
@@ -126,6 +135,7 @@ GRANT USAGE ON TYPE timesheet_status TO authenticated;
 ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE timesheets ENABLE ROW LEVEL SECURITY;
 ALTER TABLE time_entries ENABLE ROW LEVEL SECURITY;
+ALTER TABLE clients ENABLE ROW LEVEL SECURITY;
 
 -- Profiles policies (is_admin reads JWT only — safe on this table)
 CREATE POLICY "profiles_select_own" ON profiles
@@ -180,3 +190,16 @@ CREATE POLICY "entries_delete" ON time_entries
     timesheet_id IN (SELECT id FROM timesheets WHERE employee_id = auth.uid())
     OR is_admin()
   );
+
+-- Clients policies
+CREATE POLICY "clients_select" ON clients
+  FOR SELECT TO authenticated USING (true);
+
+CREATE POLICY "clients_insert_admin" ON clients
+  FOR INSERT TO authenticated WITH CHECK (is_admin());
+
+CREATE POLICY "clients_update_admin" ON clients
+  FOR UPDATE TO authenticated USING (is_admin());
+
+CREATE POLICY "clients_delete_admin" ON clients
+  FOR DELETE TO authenticated USING (is_admin());

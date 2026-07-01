@@ -12,7 +12,7 @@ import {
   getWeekDates,
   getWeekStart,
 } from "@/lib/time";
-import type { DayEntry } from "@/lib/types";
+import type { DayEntry, Client } from "@/lib/types";
 
 function buildEmptyEntries(weekStart: Date): DayEntry[] {
   const dates = getWeekDates(weekStart);
@@ -22,6 +22,7 @@ function buildEmptyEntries(weekStart: Date): DayEntry[] {
     clockIn: "",
     clockOut: "",
     breakMins: 0,
+    clientId: "",
     notes: "",
   }));
 }
@@ -39,6 +40,7 @@ export default function TimesheetForm() {
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState("");
   const [messageIsError, setMessageIsError] = useState(false);
+  const [clients, setClients] = useState<Client[]>([]);
 
   useEffect(() => {
     const weekStartDate = parseISO(weekStartStr);
@@ -49,6 +51,12 @@ export default function TimesheetForm() {
         data: { user },
       } = await supabase.auth.getUser();
       if (!user) return;
+
+      const { data: clientList } = await supabase
+        .from("clients")
+        .select("id, name")
+        .order("name");
+      if (clientList) setClients(clientList);
 
       const { data: timesheet } = await supabase
         .from("timesheets")
@@ -71,6 +79,7 @@ export default function TimesheetForm() {
             clockIn: existing.clock_in?.slice(0, 5) ?? "",
             clockOut: existing.clock_out?.slice(0, 5) ?? "",
             breakMins: existing.break_minutes ?? 0,
+            clientId: existing.client_id ?? "",
             notes: existing.notes ?? "",
           };
         });
@@ -177,6 +186,7 @@ export default function TimesheetForm() {
           entry.clockOut,
           entry.breakMins
         ),
+        client_id: entry.clientId || null,
         notes: entry.notes || null,
       }));
 
@@ -249,7 +259,7 @@ export default function TimesheetForm() {
         {entries.map((entry, i) => (
           <div
             key={entry.day}
-            className="grid grid-cols-1 md:grid-cols-6 gap-4 p-4 bg-slate-50 rounded-lg border border-slate-100 items-center"
+            className="grid grid-cols-1 md:grid-cols-7 gap-4 p-4 bg-slate-50 rounded-lg border border-slate-100 items-center"
           >
             <div className="font-medium text-slate-700">{entry.day}</div>
 
@@ -298,6 +308,23 @@ export default function TimesheetForm() {
                   entry.breakMins
                 ).toFixed(2)}
               </div>
+            </div>
+
+            <div className="flex flex-col">
+              <label className="text-xs text-slate-500 mb-1">Client</label>
+              <select
+                disabled={isReadOnly}
+                className="p-2 border rounded-md disabled:bg-slate-100"
+                value={entry.clientId}
+                onChange={(e) => handleUpdate(i, "clientId", e.target.value)}
+              >
+                <option value="">Select client</option>
+                {clients.map((client) => (
+                  <option key={client.id} value={client.id}>
+                    {client.name}
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div className="flex flex-col">
