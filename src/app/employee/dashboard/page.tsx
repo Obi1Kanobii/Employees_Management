@@ -1,40 +1,66 @@
-import { cookies } from "next/headers";
-import { createClient } from "@/lib/supabase/server";
-import { redirect } from "next/navigation";
-import { LogOut, Calendar } from "lucide-react";
-import Link from "next/link";
-import { Shift } from "@/lib/types";
-import { getBasePath } from "@/lib/base-path";
+"use client";
+
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { Calendar } from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
+import { ensureProfile } from "@/lib/profile";
 import SignOutButton from "@/components/SignOutButton";
+import { Shift, User } from "@/lib/types";
 
-export default async function EmployeeDashboard() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+export default function EmployeeDashboard() {
+  const router = useRouter();
+  const [profile, setProfile] = useState<User | null>(null);
+  const [shifts, setShifts] = useState<Shift[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  if (!user) {
-    redirect("/login");
+  useEffect(() => {
+    async function load() {
+      const supabase = createClient();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) {
+        router.replace("/login");
+        return;
+      }
+
+      const { profile: userProfile } = await ensureProfile(supabase, user);
+      if (!userProfile) return;
+
+      if (userProfile.role === "admin") {
+        router.replace("/admin/dashboard");
+        return;
+      }
+
+      setProfile(userProfile);
+
+      const { data: shiftsData } = await supabase
+        .from("shifts")
+        .select("*")
+        .eq("user_id", user.id)
+        .order("date", { ascending: false });
+
+      setShifts(shiftsData || []);
+      setLoading(false);
+    }
+
+    load();
+  }, [router]);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center text-slate-500">
+        Loading...
+      </div>
+    );
   }
 
-  // Double check role
-  const { data: profile } = await supabase
-    .from("users")
-    .select("*")
-    .eq("id", user.id)
-    .single();
-
-  if (profile?.role === "admin") {
-    redirect("/admin/dashboard");
-  }
-
-  const { data: shifts } = await supabase
-    .from("shifts")
-    .select("*")
-    .eq("user_id", user.id)
-    .order("date", { ascending: false });
-
-  const totalHours = (shifts || []).reduce((acc, shift) => acc + Number(shift.duration_hours), 0);
+  const totalHours = shifts.reduce(
+    (acc, shift) => acc + Number(shift.duration_hours),
+    0
+  );
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -58,7 +84,8 @@ export default async function EmployeeDashboard() {
           <div className="p-6 border-b border-slate-200">
             <h1 className="text-xl font-bold text-slate-900 mb-1">Your Shifts</h1>
             <p className="text-sm text-slate-500">
-              These shifts are synced automatically from Google Calendar. Total logged hours: {totalHours.toFixed(2)}
+              These shifts are synced automatically from Google Calendar. Total
+              logged hours: {totalHours.toFixed(2)}
             </p>
           </div>
           <div className="overflow-x-auto">
@@ -68,23 +95,28 @@ export default async function EmployeeDashboard() {
                   <th className="p-4 font-medium text-slate-600">Date</th>
                   <th className="p-4 font-medium text-slate-600">Start Time</th>
                   <th className="p-4 font-medium text-slate-600">End Time</th>
-                  <th className="p-4 font-medium text-slate-600 text-right">Duration (Hrs)</th>
+                  <th className="p-4 font-medium text-slate-600 text-right">
+                    Duration (Hrs)
+                  </th>
                 </tr>
               </thead>
               <tbody className="text-sm">
-                {(shifts || []).length === 0 ? (
+                {shifts.length === 0 ? (
                   <tr>
                     <td colSpan={4} className="p-8 text-center text-slate-500">
-                      No shifts found. Shifts will appear here when they are added to Google Calendar.
+                      No shifts found. Shifts will appear here when they are
+                      added to Google Calendar.
                     </td>
                   </tr>
                 ) : (
-                  (shifts as Shift[]).map((shift) => (
+                  shifts.map((shift) => (
                     <tr
                       key={shift.id}
                       className="border-b border-slate-100 hover:bg-slate-50 transition-colors"
                     >
-                      <td className="p-4 text-slate-900 font-medium">{shift.date}</td>
+                      <td className="p-4 text-slate-900 font-medium">
+                        {shift.date}
+                      </td>
                       <td className="p-4 text-slate-600">{shift.start_time}</td>
                       <td className="p-4 text-slate-600">{shift.end_time}</td>
                       <td className="p-4 text-slate-900 text-right font-medium">
