@@ -39,7 +39,7 @@ export async function updateSession(request: NextRequest) {
 
   if (user && pathname === "/login") {
     const { data: profile } = await supabase
-      .from("profiles")
+      .from("users")
       .select("role")
       .eq("id", user.id)
       .single();
@@ -52,7 +52,7 @@ export async function updateSession(request: NextRequest) {
 
   if (user && (pathname.startsWith("/admin") || pathname.startsWith("/employee"))) {
     const { data: profile } = await supabase
-      .from("profiles")
+      .from("users")
       .select("role")
       .eq("id", user.id)
       .single();

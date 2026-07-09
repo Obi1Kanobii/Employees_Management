@@ -1,49 +1,22 @@
 export type UserRole = "admin" | "employee";
-export type TimesheetStatus = "pending" | "approved" | "rejected";
 
-export interface Profile {
+export interface User {
   id: string;
-  full_name: string;
+  email: string;
+  full_name: string | null;
   role: UserRole;
   hourly_rate: number;
   created_at?: string;
 }
 
-export interface Client {
+export interface Shift {
   id: string;
-  name: string;
+  user_id: string;
+  date: string;
+  start_time: string;
+  end_time: string;
+  duration_hours: number;
+  google_event_id?: string | null;
   created_at?: string;
-}
-
-export interface Timesheet {
-  id: string;
-  employee_id: string;
-  week_start_date: string;
-  status: TimesheetStatus;
-  total_week_hours: number;
-  created_at: string;
-  profiles?: Pick<Profile, "full_name" | "hourly_rate">;
-}
-
-export interface TimeEntry {
-  id: string;
-  timesheet_id: string;
-  work_date: string;
-  clock_in: string | null;
-  clock_out: string | null;
-  break_minutes: number;
-  total_day_hours: number;
-  client_id: string | null;
-  notes: string | null;
-  clients?: Pick<Client, "name">;
-}
-
-export interface DayEntry {
-  day: string;
-  workDate: string;
-  clockIn: string;
-  clockOut: string;
-  breakMins: number;
-  clientId: string;
-  notes: string;
+  users?: Pick<User, "full_name" | "hourly_rate" | "email">;
 }

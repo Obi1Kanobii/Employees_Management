@@ -1,51 +1,56 @@
--- Run this in the Supabase SQL Editor
+-- Run this in the Supabase SQL Editor to reset and restructure
 
--- Custom types
-CREATE TYPE user_role AS ENUM ('admin', 'employee');
-CREATE TYPE timesheet_status AS ENUM ('pending', 'approved', 'rejected');
+-- Drop existing tables and triggers if any
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+DROP TRIGGER IF EXISTS on_profile_role_change ON public.profiles CASCADE;
+DROP TRIGGER IF EXISTS on_user_role_change ON public.users CASCADE;
+DROP FUNCTION IF EXISTS public.handle_new_user() CASCADE;
+DROP FUNCTION IF EXISTS public.sync_role_to_jwt() CASCADE;
+DROP FUNCTION IF EXISTS public.ensure_user_profile(text) CASCADE;
+DROP FUNCTION IF EXISTS public.ensure_user_record(text, text) CASCADE;
+DROP FUNCTION IF EXISTS public.is_admin() CASCADE;
 
--- Profiles table (extends Supabase auth.users)
-CREATE TABLE profiles (
+DROP TABLE IF EXISTS public.time_entries CASCADE;
+DROP TABLE IF EXISTS public.timesheets CASCADE;
+DROP TABLE IF EXISTS public.clients CASCADE;
+DROP TABLE IF EXISTS public.profiles CASCADE;
+DROP TABLE IF EXISTS public.calendar_sync_logs CASCADE;
+DROP TABLE IF EXISTS public.shifts CASCADE;
+DROP TABLE IF EXISTS public.users CASCADE;
+
+DROP TYPE IF EXISTS timesheet_status CASCADE;
+DROP TYPE IF EXISTS user_role CASCADE;
+
+-- Custom types (safe if type already exists)
+DO $$ BEGIN
+  CREATE TYPE public.user_role AS ENUM ('admin', 'employee');
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
+
+-- Users table (extends Supabase auth.users)
+CREATE TABLE public.users (
   id UUID REFERENCES auth.users(id) ON DELETE CASCADE PRIMARY KEY,
-  full_name TEXT NOT NULL,
+  email TEXT NOT NULL UNIQUE,
+  full_name TEXT,
   role user_role DEFAULT 'employee',
   hourly_rate DECIMAL(10,2) DEFAULT 15.00,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- Timesheets table (groups a week of entries)
-CREATE TABLE timesheets (
+-- Shifts table
+CREATE TABLE public.shifts (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  employee_id UUID REFERENCES profiles(id) NOT NULL,
-  week_start_date DATE NOT NULL,
-  status timesheet_status DEFAULT 'pending',
-  total_week_hours DECIMAL(10,2) DEFAULT 0,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  UNIQUE (employee_id, week_start_date)
-);
-
--- Clients table (billing / project clients)
-CREATE TABLE clients (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  name TEXT NOT NULL UNIQUE,
+  user_id UUID REFERENCES public.users(id) ON DELETE CASCADE NOT NULL,
+  date DATE NOT NULL,
+  start_time TIME NOT NULL,
+  end_time TIME NOT NULL,
+  duration_hours DECIMAL(10,2) NOT NULL,
+  google_event_id TEXT UNIQUE, -- to avoid duplicates during sync
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- Time entries table (daily logs)
-CREATE TABLE time_entries (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  timesheet_id UUID REFERENCES timesheets(id) ON DELETE CASCADE,
-  work_date DATE NOT NULL,
-  clock_in TIME,
-  clock_out TIME,
-  break_minutes INT DEFAULT 0,
-  total_day_hours DECIMAL(10,2) DEFAULT 0,
-  client_id UUID REFERENCES clients(id),
-  notes TEXT,
-  UNIQUE (timesheet_id, work_date)
-);
-
--- Helper: admin check via JWT (never queries profiles — no RLS recursion)
+-- Helper: admin check via JWT
 CREATE OR REPLACE FUNCTION public.is_admin()
 RETURNS boolean
 LANGUAGE sql
@@ -54,7 +59,7 @@ AS $$
   SELECT COALESCE(auth.jwt() -> 'app_metadata' ->> 'role', 'employee') = 'admin';
 $$;
 
--- Sync profile role into JWT app_metadata
+-- Sync role into JWT app_metadata
 CREATE OR REPLACE FUNCTION public.sync_role_to_jwt()
 RETURNS TRIGGER
 LANGUAGE plpgsql
@@ -71,34 +76,11 @@ BEGIN
 END;
 $$;
 
-CREATE TRIGGER on_profile_role_change
-  AFTER INSERT OR UPDATE OF role ON public.profiles
+CREATE TRIGGER on_user_role_change
+  AFTER INSERT OR UPDATE OF role ON public.users
   FOR EACH ROW EXECUTE FUNCTION public.sync_role_to_jwt();
 
--- RPC to create/fetch profile (bypasses RLS safely)
-CREATE OR REPLACE FUNCTION public.ensure_user_profile(full_name text DEFAULT 'Employee')
-RETURNS public.profiles
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public
-AS $$
-DECLARE
-  result public.profiles;
-BEGIN
-  PERFORM set_config('row_security', 'off', true);
-
-  INSERT INTO public.profiles (id, full_name)
-  VALUES (auth.uid(), full_name)
-  ON CONFLICT (id) DO UPDATE SET full_name = EXCLUDED.full_name
-  RETURNING * INTO result;
-
-  RETURN result;
-END;
-$$;
-
-GRANT EXECUTE ON FUNCTION public.ensure_user_profile(text) TO authenticated;
-
--- Auto-create profile on signup
+-- Auto-create user on signup
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER
 LANGUAGE plpgsql
@@ -107,9 +89,10 @@ SET search_path = public
 AS $$
 BEGIN
   PERFORM set_config('row_security', 'off', true);
-  INSERT INTO public.profiles (id, full_name)
+  INSERT INTO public.users (id, email, full_name)
   VALUES (
     NEW.id,
+    NEW.email,
     COALESCE(NEW.raw_user_meta_data->>'full_name', split_part(NEW.email, '@', 1))
   )
   ON CONFLICT (id) DO NOTHING;
@@ -117,89 +100,100 @@ BEGIN
 END;
 $$;
 
-DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
 
+-- RPC to create/fetch user record (bypasses RLS safely on login)
+DROP FUNCTION IF EXISTS public.ensure_user_profile(text) CASCADE;
+DROP FUNCTION IF EXISTS public.ensure_user_record(text, text) CASCADE;
+
+CREATE OR REPLACE FUNCTION public.ensure_user_record(
+  full_name text DEFAULT 'Employee',
+  email text DEFAULT NULL
+)
+RETURNS public.users
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  result public.users;
+  user_email text;
+BEGIN
+  PERFORM set_config('row_security', 'off', true);
+
+  user_email := COALESCE(
+    email,
+    (SELECT u.email FROM auth.users u WHERE u.id = auth.uid())
+  );
+
+  IF user_email IS NULL THEN
+    RAISE EXCEPTION 'No email found for authenticated user';
+  END IF;
+
+  INSERT INTO public.users (id, email, full_name)
+  VALUES (auth.uid(), user_email, full_name)
+  ON CONFLICT (id) DO UPDATE SET
+    full_name = EXCLUDED.full_name,
+    email = EXCLUDED.email
+  RETURNING * INTO result;
+
+  RETURN result;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.ensure_user_record(text, text) TO authenticated;
+
 -- Table grants for authenticated users
 GRANT USAGE ON SCHEMA public TO authenticated;
-GRANT ALL ON profiles TO authenticated;
-GRANT ALL ON timesheets TO authenticated;
-GRANT ALL ON time_entries TO authenticated;
-GRANT ALL ON clients TO authenticated;
+GRANT ALL ON public.users TO authenticated;
+GRANT ALL ON public.shifts TO authenticated;
 GRANT USAGE ON TYPE user_role TO authenticated;
-GRANT USAGE ON TYPE timesheet_status TO authenticated;
 
 -- Enable RLS
-ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
-ALTER TABLE timesheets ENABLE ROW LEVEL SECURITY;
-ALTER TABLE time_entries ENABLE ROW LEVEL SECURITY;
-ALTER TABLE clients ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.shifts ENABLE ROW LEVEL SECURITY;
 
--- Profiles policies (is_admin reads JWT only — safe on this table)
-CREATE POLICY "profiles_select_own" ON profiles
+-- Users policies (drop first so script can be re-run)
+DROP POLICY IF EXISTS "users_select_own" ON public.users;
+DROP POLICY IF EXISTS "users_select_admin" ON public.users;
+DROP POLICY IF EXISTS "users_insert_own" ON public.users;
+DROP POLICY IF EXISTS "users_update_own" ON public.users;
+DROP POLICY IF EXISTS "users_update_admin" ON public.users;
+
+CREATE POLICY "users_select_own" ON public.users
   FOR SELECT USING (auth.uid() = id);
 
-CREATE POLICY "profiles_select_admin" ON profiles
+CREATE POLICY "users_select_admin" ON public.users
   FOR SELECT USING (is_admin());
 
-CREATE POLICY "profiles_insert_own" ON profiles
+CREATE POLICY "users_insert_own" ON public.users
   FOR INSERT WITH CHECK (auth.uid() = id);
 
-CREATE POLICY "profiles_update_own" ON profiles
+CREATE POLICY "users_update_own" ON public.users
   FOR UPDATE USING (auth.uid() = id);
 
-CREATE POLICY "profiles_update_admin" ON profiles
+CREATE POLICY "users_update_admin" ON public.users
   FOR UPDATE USING (is_admin());
 
--- Timesheets policies
-CREATE POLICY "timesheets_insert" ON timesheets
-  FOR INSERT WITH CHECK (auth.uid() = employee_id OR is_admin());
+-- Shifts policies (drop first so script can be re-run)
+DROP POLICY IF EXISTS "shifts_select_own" ON public.shifts;
+DROP POLICY IF EXISTS "shifts_select_admin" ON public.shifts;
+DROP POLICY IF EXISTS "shifts_insert_admin" ON public.shifts;
+DROP POLICY IF EXISTS "shifts_update_admin" ON public.shifts;
+DROP POLICY IF EXISTS "shifts_delete_admin" ON public.shifts;
 
-CREATE POLICY "timesheets_select" ON timesheets
-  FOR SELECT USING (auth.uid() = employee_id OR is_admin());
+CREATE POLICY "shifts_select_own" ON public.shifts
+  FOR SELECT USING (auth.uid() = user_id);
 
-CREATE POLICY "timesheets_update" ON timesheets
-  FOR UPDATE USING (auth.uid() = employee_id OR is_admin());
+CREATE POLICY "shifts_select_admin" ON public.shifts
+  FOR SELECT USING (is_admin());
 
-CREATE POLICY "timesheets_delete" ON timesheets
-  FOR DELETE USING (auth.uid() = employee_id OR is_admin());
-
--- Time entries policies
-CREATE POLICY "entries_insert" ON time_entries
-  FOR INSERT WITH CHECK (
-    timesheet_id IN (SELECT id FROM timesheets WHERE employee_id = auth.uid())
-    OR is_admin()
-  );
-
-CREATE POLICY "entries_select" ON time_entries
-  FOR SELECT USING (
-    timesheet_id IN (SELECT id FROM timesheets WHERE employee_id = auth.uid())
-    OR is_admin()
-  );
-
-CREATE POLICY "entries_update" ON time_entries
-  FOR UPDATE USING (
-    timesheet_id IN (SELECT id FROM timesheets WHERE employee_id = auth.uid())
-    OR is_admin()
-  );
-
-CREATE POLICY "entries_delete" ON time_entries
-  FOR DELETE USING (
-    timesheet_id IN (SELECT id FROM timesheets WHERE employee_id = auth.uid())
-    OR is_admin()
-  );
-
--- Clients policies
-CREATE POLICY "clients_select" ON clients
-  FOR SELECT TO authenticated USING (true);
-
-CREATE POLICY "clients_insert_admin" ON clients
-  FOR INSERT TO authenticated WITH CHECK (is_admin());
-
-CREATE POLICY "clients_update_admin" ON clients
-  FOR UPDATE TO authenticated USING (is_admin());
-
-CREATE POLICY "clients_delete_admin" ON clients
-  FOR DELETE TO authenticated USING (is_admin());
+-- No insert/update/delete for employees on shifts from the app, handled by admin/service role
+CREATE POLICY "shifts_insert_admin" ON public.shifts
+  FOR INSERT WITH CHECK (is_admin());
+CREATE POLICY "shifts_update_admin" ON public.shifts
+  FOR UPDATE USING (is_admin());
+CREATE POLICY "shifts_delete_admin" ON public.shifts
+  FOR DELETE USING (is_admin());

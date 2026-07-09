@@ -1,31 +1,24 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Download, Users, Banknote, Clock, Building2 } from "lucide-react";
+import {
+  Download,
+  RefreshCw,
+} from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { createClient } from "@/lib/supabase/client";
 import { formatShekels } from "@/lib/currency";
-import { formatWeekRange } from "@/lib/time";
-import type { Client, Timesheet, TimesheetStatus } from "@/lib/types";
+import { syncCalendarFromGoogle } from "@/lib/calendar-sync";
+import type { Shift } from "@/lib/types";
 
-interface TimesheetRow extends Timesheet {
-  profiles: { full_name: string; hourly_rate: number };
+interface ShiftRow extends Shift {
+  users?: { full_name: string; email: string; hourly_rate: number };
 }
 
-interface ClientEntryRow {
-  work_date: string;
-  total_day_hours: number;
-  client_id: string | null;
-  clients: { name: string } | null;
-  timesheets: {
-    status: TimesheetStatus;
-    profiles: { hourly_rate: number };
-  };
-}
-
-interface ClientMonthSummary {
-  clientId: string;
-  clientName: string;
+interface MonthlySummary {
+  userId: string;
+  userName: string;
+  userEmail: string;
   monthKey: string;
   monthLabel: string;
   totalHours: number;
@@ -33,69 +26,29 @@ interface ClientMonthSummary {
 }
 
 export default function AdminDashboard() {
-  const [timesheets, setTimesheets] = useState<TimesheetRow[]>([]);
-  const [clientEntries, setClientEntries] = useState<ClientEntryRow[]>([]);
-  const [clients, setClients] = useState<Client[]>([]);
-  const [newClientName, setNewClientName] = useState("");
-  const [filter, setFilter] = useState("all");
-  const [monthFilter, setMonthFilter] = useState("all");
+  const [activeTab, setActiveTab] = useState<"shifts" | "payroll">("shifts");
+  const [shifts, setShifts] = useState<ShiftRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [clientError, setClientError] = useState("");
+  
+  const [monthFilter, setMonthFilter] = useState("all");
+  const [syncing, setSyncing] = useState(false);
+  const [syncMessage, setSyncMessage] = useState("");
+  const [syncIsError, setSyncIsError] = useState(false);
 
   useEffect(() => {
     let active = true;
 
     void (async () => {
       const supabase = createClient();
-      const [timesheetRes, entriesRes, clientsRes] = await Promise.all([
-        supabase
-          .from("timesheets")
-          .select("*, profiles(full_name, hourly_rate)")
-          .order("created_at", { ascending: false }),
-        supabase
-          .from("time_entries")
-          .select(
-            "work_date, total_day_hours, client_id, clients(name), timesheets!inner(status, profiles(hourly_rate))"
-          ),
-        supabase.from("clients").select("*").order("name"),
-      ]);
+      const shiftsRes = await supabase
+        .from("shifts")
+        .select("*, users(full_name, email, hourly_rate)")
+        .order("date", { ascending: false })
+        .order("start_time", { ascending: false });
 
       if (!active) return;
-      if (!timesheetRes.error && timesheetRes.data) {
-        setTimesheets(timesheetRes.data as TimesheetRow[]);
-      }
-      if (!entriesRes.error && entriesRes.data) {
-        setClientEntries(
-          entriesRes.data.map((row) => ({
-            work_date: row.work_date,
-            total_day_hours: row.total_day_hours,
-            client_id: row.client_id,
-            clients: Array.isArray(row.clients) ? row.clients[0] : row.clients,
-            timesheets: {
-              status: (Array.isArray(row.timesheets)
-                ? row.timesheets[0]
-                : row.timesheets
-              ).status,
-              profiles: Array.isArray(
-                (Array.isArray(row.timesheets)
-                  ? row.timesheets[0]
-                  : row.timesheets
-                ).profiles
-              )
-                ? (Array.isArray(row.timesheets)
-                    ? row.timesheets[0]
-                    : row.timesheets
-                  ).profiles[0]
-                : (Array.isArray(row.timesheets)
-                    ? row.timesheets[0]
-                    : row.timesheets
-                  ).profiles,
-            },
-          })) as ClientEntryRow[]
-        );
-      }
-      if (!clientsRes.error && clientsRes.data) {
-        setClients(clientsRes.data);
+      if (!shiftsRes.error && shiftsRes.data) {
+        setShifts(shiftsRes.data as ShiftRow[]);
       }
       setLoading(false);
     })();
@@ -105,32 +58,15 @@ export default function AdminDashboard() {
     };
   }, []);
 
-  const filteredData =
-    filter === "all"
-      ? timesheets
-      : timesheets.filter((t) => t.status === filter);
+  const monthlySummaries = useMemo(() => {
+    const map = new Map<string, MonthlySummary>();
+    for (const shift of shifts) {
+      if (!shift.user_id) continue;
 
-  const totalHours = timesheets.reduce(
-    (acc, curr) => acc + Number(curr.total_week_hours),
-    0
-  );
-  const estPayroll = timesheets.reduce(
-    (acc, curr) =>
-      acc +
-      Number(curr.total_week_hours) * Number(curr.profiles?.hourly_rate ?? 0),
-    0
-  );
-
-  const clientMonthSummaries = useMemo(() => {
-    const map = new Map<string, ClientMonthSummary>();
-
-    for (const entry of clientEntries) {
-      if (entry.timesheets.status !== "approved" || !entry.client_id) continue;
-
-      const monthKey = format(parseISO(entry.work_date), "yyyy-MM");
-      const key = `${entry.client_id}:${monthKey}`;
-      const hours = Number(entry.total_day_hours);
-      const rate = Number(entry.timesheets.profiles?.hourly_rate ?? 0);
+      const monthKey = format(parseISO(shift.date), "yyyy-MM");
+      const key = `${shift.user_id}:${monthKey}`;
+      const hours = Number(shift.duration_hours);
+      const rate = Number(shift.users?.hourly_rate ?? 0);
       const existing = map.get(key);
 
       if (existing) {
@@ -138,384 +74,225 @@ export default function AdminDashboard() {
         existing.totalAmount += hours * rate;
       } else {
         map.set(key, {
-          clientId: entry.client_id,
-          clientName: entry.clients?.name ?? "Unknown",
+          userId: shift.user_id,
+          userName: shift.users?.full_name || "Unknown",
+          userEmail: shift.users?.email || "",
           monthKey,
-          monthLabel: format(parseISO(entry.work_date), "MMMM yyyy"),
+          monthLabel: format(parseISO(shift.date), "MMMM yyyy"),
           totalHours: hours,
           totalAmount: hours * rate,
         });
       }
     }
-
     return Array.from(map.values()).sort((a, b) => {
       if (a.monthKey !== b.monthKey) return b.monthKey.localeCompare(a.monthKey);
-      return a.clientName.localeCompare(b.clientName);
+      return a.userName.localeCompare(b.userName);
     });
-  }, [clientEntries]);
+  }, [shifts]);
 
   const availableMonths = useMemo(() => {
-    const months = new Set(clientMonthSummaries.map((s) => s.monthKey));
-    return Array.from(months).sort((a, b) => b.localeCompare(a));
-  }, [clientMonthSummaries]);
+    return Array.from(new Set(monthlySummaries.map((s) => s.monthKey))).sort((a, b) => b.localeCompare(a));
+  }, [monthlySummaries]);
 
-  const filteredClientSummaries =
-    monthFilter === "all"
-      ? clientMonthSummaries
-      : clientMonthSummaries.filter((s) => s.monthKey === monthFilter);
-
-  const handleStatusChange = async (id: string, status: TimesheetStatus) => {
-    const supabase = createClient();
-    const { error } = await supabase
-      .from("timesheets")
-      .update({ status })
-      .eq("id", id);
-
-    if (!error) {
-      setTimesheets((prev) =>
-        prev.map((t) => (t.id === id ? { ...t, status } : t))
-      );
-      setClientEntries((prev) =>
-        prev.map((e) =>
-          e.timesheets ? { ...e, timesheets: { ...e.timesheets, status } } : e
-        )
-      );
-    }
-  };
-
-  const handleAddClient = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const name = newClientName.trim();
-    if (!name) return;
-
-    setClientError("");
-    const supabase = createClient();
-    const { data, error } = await supabase
-      .from("clients")
-      .insert({ name })
-      .select()
-      .single();
-
-    if (error) {
-      setClientError(error.message);
+  const handleCalendarSync = async () => {
+    setSyncing(true);
+    setSyncMessage("");
+    setSyncIsError(false);
+    const result = await syncCalendarFromGoogle();
+    if (!result.ok) {
+      setSyncMessage(result.error ?? "Calendar sync failed.");
+      setSyncIsError(true);
+      setSyncing(false);
       return;
     }
-
-    setClients((prev) => [...prev, data].sort((a, b) => a.name.localeCompare(b.name)));
-    setNewClientName("");
+    setSyncMessage(
+      `Synced ${result.entriesUpserted ?? 0} shift(s) from ${result.eventsProcessed ?? 0} calendar events.` +
+        (result.eventsSkipped ? ` Skipped ${result.eventsSkipped}.` : "") +
+        (result.errors?.length ? ` ${result.errors[0]}` : "")
+    );
+    
+    // Refresh shifts
+    const supabase = createClient();
+    const { data } = await supabase
+      .from("shifts")
+      .select("*, users(full_name, email, hourly_rate)")
+      .order("date", { ascending: false })
+      .order("start_time", { ascending: false });
+    
+    if (data) {
+      setShifts(data as ShiftRow[]);
+    }
+    
+    setSyncing(false);
   };
 
-  const handleExportCSV = () => {
-    const headers = "Name,Week,Hours,Rate,Status,Pay\n";
-    const rows = filteredData
-      .map((t) => {
-        const weekStart = parseISO(t.week_start_date);
-        const pay =
-          Number(t.total_week_hours) * Number(t.profiles?.hourly_rate ?? 0);
-        return `${t.profiles?.full_name},${formatWeekRange(weekStart)},${t.total_week_hours},${t.profiles?.hourly_rate},${t.status},${pay.toFixed(2)}`;
-      })
-      .join("\n");
-    const blob = new Blob([headers + rows], { type: "text/csv" });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "payroll_export.csv";
-    a.click();
-  };
+  const downloadCsv = (monthKey: string) => {
+    const dataToExport = monthKey === "all" ? monthlySummaries : monthlySummaries.filter(s => s.monthKey === monthKey);
+    if (dataToExport.length === 0) return;
 
-  const handleExportClientCSV = () => {
-    const headers = "Client,Month,Hours,Amount (ILS)\n";
-    const rows = filteredClientSummaries
-      .map(
-        (s) =>
-          `${s.clientName},${s.monthLabel},${s.totalHours.toFixed(2)},${s.totalAmount.toFixed(2)}`
-      )
-      .join("\n");
-    const blob = new Blob([headers + rows], { type: "text/csv" });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "client_monthly_summary.csv";
-    a.click();
+    const headers = ["Month", "Employee Name", "Email", "Total Hours", "Total Pay (ILS)"];
+    const rows = dataToExport.map(s => [
+      s.monthLabel,
+      s.userName,
+      s.userEmail,
+      s.totalHours.toFixed(2),
+      s.totalAmount.toFixed(2)
+    ]);
+
+    const csvContent =
+      "data:text/csv;charset=utf-8,\uFEFF" +
+      [headers.join(","), ...rows.map(e => e.join(","))].join("\n");
+
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `payroll_summary_${monthKey}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   if (loading) {
-    return (
-      <div className="p-8 text-center text-slate-500">Loading dashboard...</div>
-    );
+    return <div className="min-h-screen flex items-center justify-center text-slate-500">Loading dashboard...</div>;
   }
 
+  const filteredSummaries = monthFilter === "all" ? monthlySummaries : monthlySummaries.filter(s => s.monthKey === monthFilter);
+
   return (
-    <div className="p-8 max-w-7xl mx-auto space-y-8">
-      <div className="flex justify-between items-center">
-        <h1 className="text-3xl font-bold text-slate-900">Admin Overview</h1>
-        <button
-          onClick={handleExportCSV}
-          className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-blue-700 transition"
-        >
-          <Download size={18} /> Export Payroll CSV
-        </button>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 flex items-center gap-4">
-          <div className="p-4 bg-blue-100 text-blue-600 rounded-full">
-            <Clock size={24} />
-          </div>
-          <div>
-            <p className="text-sm text-slate-500 font-medium">
-              Total Hours (All Submissions)
-            </p>
-            <p className="text-2xl font-bold text-slate-900">
-              {totalHours.toFixed(1)}
-            </p>
-          </div>
-        </div>
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 flex items-center gap-4">
-          <div className="p-4 bg-emerald-100 text-emerald-600 rounded-full">
-            <Banknote size={24} />
-          </div>
-          <div>
-            <p className="text-sm text-slate-500 font-medium">
-              Estimated Payroll
-            </p>
-            <p className="text-2xl font-bold text-slate-900">
-              {formatShekels(estPayroll)}
-            </p>
-          </div>
-        </div>
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 flex items-center gap-4">
-          <div className="p-4 bg-purple-100 text-purple-600 rounded-full">
-            <Users size={24} />
-          </div>
-          <div>
-            <p className="text-sm text-slate-500 font-medium">
-              Pending Approvals
-            </p>
-            <p className="text-2xl font-bold text-slate-900">
-              {timesheets.filter((t) => t.status === "pending").length}
-            </p>
-          </div>
+    <div className="p-6 max-w-7xl mx-auto space-y-8">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold text-slate-900 tracking-tight">Admin Dashboard</h1>
+          <p className="text-slate-500 mt-1">Manage employee shifts and payroll</p>
         </div>
       </div>
 
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-        <div className="p-4 border-b border-slate-100">
-          <div className="flex items-center gap-2 mb-4">
-            <Building2 size={20} className="text-slate-600" />
-            <h3 className="font-bold text-slate-800">Clients</h3>
+      <div className="flex border-b border-slate-200">
+        {(["shifts", "payroll"] as const).map((tab) => (
+          <button
+            key={tab}
+            onClick={() => setActiveTab(tab)}
+            className={`px-6 py-3 font-medium text-sm transition-colors border-b-2 ${
+              activeTab === tab
+                ? "border-blue-600 text-blue-600"
+                : "border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300"
+            }`}
+          >
+            {tab.charAt(0).toUpperCase() + tab.slice(1)}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === "shifts" && (
+        <div className="space-y-4">
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+            <div className="p-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-50/50">
+              <h3 className="font-bold text-slate-800 text-lg">All Logged Shifts</h3>
+              <button
+                onClick={() => void handleCalendarSync()}
+                disabled={syncing}
+                className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition flex items-center justify-center gap-2 disabled:opacity-70"
+              >
+                <RefreshCw size={16} className={syncing ? "animate-spin" : ""} />
+                {syncing ? "Syncing..." : "Sync from Google Calendar"}
+              </button>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+              <thead className="bg-slate-50 sticky top-0 z-10">
+                <tr className="text-slate-500 text-xs uppercase tracking-wider border-b border-slate-200">
+                  <th className="p-4 font-semibold">Date</th>
+                  <th className="p-4 font-semibold">Employee</th>
+                  <th className="p-4 font-semibold">Start</th>
+                  <th className="p-4 font-semibold">End</th>
+                  <th className="p-4 font-semibold text-right">Hours</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {shifts.length === 0 ? (
+                  <tr><td colSpan={5} className="p-12 text-center text-slate-500">No shifts found. Sync calendar to fetch data.</td></tr>
+                ) : (
+                  shifts.map((shift) => (
+                    <tr key={shift.id} className="hover:bg-slate-50/80 transition group">
+                      <td className="p-4 font-medium text-slate-900">{shift.date}</td>
+                      <td className="p-4 text-slate-900">
+                        {shift.users?.full_name}
+                        <div className="text-xs text-slate-500">{shift.users?.email}</div>
+                      </td>
+                      <td className="p-4 text-slate-600">{shift.start_time}</td>
+                      <td className="p-4 text-slate-600">{shift.end_time}</td>
+                      <td className="p-4 font-mono text-slate-900 text-right font-medium">{Number(shift.duration_hours).toFixed(2)}</td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
           </div>
-          <form onSubmit={handleAddClient} className="flex gap-2 max-w-md">
-            <input
-              type="text"
-              placeholder="New client name"
-              value={newClientName}
-              onChange={(e) => setNewClientName(e.target.value)}
-              className="flex-1 p-2 border border-slate-300 rounded-md text-sm"
-            />
-            <button
-              type="submit"
-              className="bg-slate-900 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-slate-800 transition"
-            >
-              Add
-            </button>
-          </form>
-          {clientError && (
-            <p className="text-sm text-red-600 mt-2">{clientError}</p>
-          )}
-          {clients.length > 0 && (
-            <div className="flex flex-wrap gap-2 mt-3">
-              {clients.map((client) => (
-                <span
-                  key={client.id}
-                  className="px-3 py-1 bg-slate-100 text-slate-700 rounded-full text-sm"
-                >
-                  {client.name}
-                </span>
-              ))}
+          </div>
+
+          {syncMessage && (
+            <div className={`p-4 rounded-xl border flex items-center gap-3 text-sm font-medium ${syncIsError ? "border-red-200 bg-red-50 text-red-800" : "border-emerald-200 bg-emerald-50 text-emerald-800"}`}>
+              <div className={`w-2 h-2 rounded-full shrink-0 ${syncIsError ? "bg-red-500" : "bg-emerald-500"}`} />
+              {syncMessage}
             </div>
           )}
         </div>
-      </div>
+      )}
 
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-        <div className="p-4 border-b border-slate-100 flex justify-between items-center">
-          <h3 className="font-bold text-slate-800">
-            Hours &amp; Cost per Client (Monthly)
-          </h3>
-          <div className="flex items-center gap-2">
-            <select
-              className="p-2 border border-slate-300 rounded-md text-sm"
-              value={monthFilter}
-              onChange={(e) => setMonthFilter(e.target.value)}
-            >
-              <option value="all">All Months</option>
-              {availableMonths.map((month) => (
-                <option key={month} value={month}>
-                  {format(parseISO(`${month}-01`), "MMMM yyyy")}
-                </option>
-              ))}
-            </select>
-            <button
-              onClick={handleExportClientCSV}
-              className="text-sm text-blue-600 hover:bg-blue-50 px-3 py-2 rounded-md font-medium flex items-center gap-1"
-            >
-              <Download size={16} /> Export
-            </button>
+      {activeTab === "payroll" && (
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+          <div className="p-5 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+            <h3 className="font-bold text-slate-800 text-lg">Monthly Payroll Summary</h3>
+            <div className="flex gap-3">
+              <select
+                className="px-4 py-2 bg-white border border-slate-300 rounded-lg text-sm font-medium text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                value={monthFilter}
+                onChange={(e) => setMonthFilter(e.target.value)}
+              >
+                <option value="all">All Months</option>
+                {availableMonths.map((month) => (
+                  <option key={month} value={month}>{format(parseISO(`${month}-01`), "MMMM yyyy")}</option>
+                ))}
+              </select>
+              <button
+                onClick={() => downloadCsv(monthFilter)}
+                className="bg-slate-900 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-800 transition flex items-center gap-2"
+              >
+                <Download size={16} /> Export CSV
+              </button>
+            </div>
           </div>
-        </div>
-
-        {filteredClientSummaries.length === 0 ? (
-          <p className="p-8 text-center text-slate-500">
-            No approved hours with a client assigned yet.
-          </p>
-        ) : (
+          
           <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="bg-slate-50 text-slate-500 text-sm border-b border-slate-200">
-                <th className="p-4 font-medium">Client</th>
-                <th className="p-4 font-medium">Month</th>
-                <th className="p-4 font-medium">Total Hours</th>
-                <th className="p-4 font-medium">Total Cost</th>
+            <thead className="bg-slate-50 border-b border-slate-200">
+              <tr className="text-slate-500 text-xs uppercase tracking-wider">
+                <th className="p-4 font-semibold">Month</th>
+                <th className="p-4 font-semibold">Employee</th>
+                <th className="p-4 font-semibold text-right">Total Hours</th>
+                <th className="p-4 font-semibold text-right">Est. Pay</th>
               </tr>
             </thead>
-            <tbody>
-              {filteredClientSummaries.map((row) => (
-                <tr
-                  key={`${row.clientId}-${row.monthKey}`}
-                  className="border-b border-slate-100 hover:bg-slate-50 transition"
-                >
-                  <td className="p-4 font-medium text-slate-800">
-                    {row.clientName}
-                  </td>
-                  <td className="p-4 text-slate-600">{row.monthLabel}</td>
-                  <td className="p-4 font-mono text-slate-700">
-                    {row.totalHours.toFixed(1)}h
-                  </td>
-                  <td className="p-4 font-mono text-slate-700">
-                    {formatShekels(row.totalAmount)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-            <tfoot>
-              <tr className="bg-slate-50 font-semibold text-slate-800">
-                <td className="p-4" colSpan={2}>
-                  Total
-                </td>
-                <td className="p-4 font-mono">
-                  {filteredClientSummaries
-                    .reduce((acc, r) => acc + r.totalHours, 0)
-                    .toFixed(1)}
-                  h
-                </td>
-                <td className="p-4 font-mono">
-                  {formatShekels(
-                    filteredClientSummaries.reduce(
-                      (acc, r) => acc + r.totalAmount,
-                      0
-                    )
-                  )}
-                </td>
-              </tr>
-            </tfoot>
-          </table>
-        )}
-      </div>
-
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-        <div className="p-4 border-b border-slate-100 flex justify-between items-center">
-          <h3 className="font-bold text-slate-800">Timesheet Submissions</h3>
-          <select
-            className="p-2 border border-slate-300 rounded-md text-sm"
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-          >
-            <option value="all">All Statuses</option>
-            <option value="pending">Pending</option>
-            <option value="approved">Approved</option>
-            <option value="rejected">Rejected</option>
-          </select>
-        </div>
-
-        {filteredData.length === 0 ? (
-          <p className="p-8 text-center text-slate-500">
-            No timesheet submissions yet.
-          </p>
-        ) : (
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="bg-slate-50 text-slate-500 text-sm border-b border-slate-200">
-                <th className="p-4 font-medium">Employee</th>
-                <th className="p-4 font-medium">Week</th>
-                <th className="p-4 font-medium">Total Hours</th>
-                <th className="p-4 font-medium">Est. Pay</th>
-                <th className="p-4 font-medium">Status</th>
-                <th className="p-4 font-medium">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredData.map((row) => {
-                const pay =
-                  Number(row.total_week_hours) *
-                  Number(row.profiles?.hourly_rate ?? 0);
-                return (
-                  <tr
-                    key={row.id}
-                    className="border-b border-slate-100 hover:bg-slate-50 transition"
-                  >
-                    <td className="p-4 font-medium text-slate-800">
-                      {row.profiles?.full_name}
+            <tbody className="divide-y divide-slate-100">
+              {filteredSummaries.length === 0 ? (
+                <tr><td colSpan={4} className="p-12 text-center text-slate-500">No payroll data found for this period.</td></tr>
+              ) : (
+                filteredSummaries.map((row) => (
+                  <tr key={`${row.userId}-${row.monthKey}`} className="hover:bg-slate-50 transition">
+                    <td className="p-4 text-slate-600 font-medium">{row.monthLabel}</td>
+                    <td className="p-4 font-medium text-slate-900">
+                      {row.userName}
+                      <div className="text-xs text-slate-500">{row.userEmail}</div>
                     </td>
-                    <td className="p-4 text-slate-600">
-                      {formatWeekRange(parseISO(row.week_start_date))}
-                    </td>
-                    <td className="p-4 font-mono text-slate-700">
-                      {Number(row.total_week_hours).toFixed(1)}h
-                    </td>
-                    <td className="p-4 font-mono text-slate-700">
-                      {formatShekels(pay)}
-                    </td>
-                    <td className="p-4">
-                      <span
-                        className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider
-                        ${row.status === "approved" ? "bg-emerald-100 text-emerald-700" : ""}
-                        ${row.status === "pending" ? "bg-amber-100 text-amber-700" : ""}
-                        ${row.status === "rejected" ? "bg-red-100 text-red-700" : ""}
-                      `}
-                      >
-                        {row.status}
-                      </span>
-                    </td>
-                    <td className="p-4">
-                      {row.status === "pending" && (
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() =>
-                              handleStatusChange(row.id, "approved")
-                            }
-                            className="text-emerald-600 hover:bg-emerald-50 px-2 py-1 rounded text-sm font-medium"
-                          >
-                            Approve
-                          </button>
-                          <button
-                            onClick={() =>
-                              handleStatusChange(row.id, "rejected")
-                            }
-                            className="text-red-600 hover:bg-red-50 px-2 py-1 rounded text-sm font-medium"
-                          >
-                            Reject
-                          </button>
-                        </div>
-                      )}
-                    </td>
+                    <td className="p-4 font-mono text-slate-700 text-right">{row.totalHours.toFixed(2)}h</td>
+                    <td className="p-4 font-mono text-slate-900 font-medium text-right">{formatShekels(row.totalAmount)}</td>
                   </tr>
-                );
-              })}
+                ))
+              )}
             </tbody>
           </table>
-        )}
-      </div>
+        </div>
+      )}
+
     </div>
   );
 }

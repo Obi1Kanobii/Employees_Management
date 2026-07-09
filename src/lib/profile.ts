@@ -1,57 +1,62 @@
-import type { SupabaseClient, User } from "@supabase/supabase-js";
-import type { Profile } from "./types";
+import type { SupabaseClient, User as SupabaseUser } from "@supabase/supabase-js";
+import type { User } from "./types";
 
 export type EnsureProfileResult = {
-  profile: Profile | null;
+  profile: User | null;
   error?: string;
 };
 
 export async function ensureProfile(
   supabase: SupabaseClient,
-  user: User
+  auth_user: SupabaseUser
 ): Promise<EnsureProfileResult> {
   const fullName =
-    user.user_metadata?.full_name ??
-    user.email?.split("@")[0] ??
+    auth_user.user_metadata?.full_name ??
+    auth_user.email?.split("@")[0] ??
     "Employee";
+  const email = auth_user.email ?? "";
 
-  const { data, error } = await supabase.rpc("ensure_user_profile", {
-    full_name: fullName,
-  });
+  const { data: rpcData, error: rpcError } = await supabase.rpc(
+    "ensure_user_record",
+    {
+      full_name: fullName,
+      email,
+    }
+  );
 
-  if (!error && data) {
+  if (!rpcError && rpcData) {
     await supabase.auth.refreshSession();
-    return { profile: data as Profile };
+    return { profile: rpcData as User };
   }
 
   const { data: existing, error: selectError } = await supabase
-    .from("profiles")
+    .from("users")
     .select("*")
-    .eq("id", user.id)
+    .eq("id", auth_user.id)
     .maybeSingle();
 
   if (existing) {
     await supabase.auth.refreshSession();
-    return { profile: existing as Profile };
+    return { profile: existing as User };
   }
 
   const { data: inserted, error: insertError } = await supabase
-    .from("profiles")
-    .insert({ id: user.id, full_name: fullName })
+    .from("users")
+    .insert({ id: auth_user.id, email, full_name: fullName })
     .select()
     .single();
 
   if (inserted) {
     await supabase.auth.refreshSession();
-    return { profile: inserted as Profile };
+    return { profile: inserted as User };
   }
 
   const message =
+    rpcError?.message ??
     insertError?.message ??
     selectError?.message ??
-    error?.message ??
-    "Unknown error creating profile";
+    "Unknown error creating user record";
 
-  console.error("Failed to create profile:", message);
+  console.error("Failed to create user record:", message);
   return { profile: null, error: message };
 }
